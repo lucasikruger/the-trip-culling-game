@@ -94,6 +94,17 @@ The seed script (`scripts/seed.js`) runs automatically on container start and in
 
 ---
 
+## Deployment (Northflank)
+
+1. Create a project in [Northflank](https://northflank.com) and add a **Deployment service**.
+2. Connect your GitHub repo — Northflank will build from the `Dockerfile` automatically on every push to `main`.
+3. Set all environment variables from `.env.example` in the Northflank service settings.
+4. Northflank injects `PORT` automatically — the app reads it at startup.
+
+No extra CI/CD configuration needed.
+
+---
+
 ## Game Flow
 
 ```
