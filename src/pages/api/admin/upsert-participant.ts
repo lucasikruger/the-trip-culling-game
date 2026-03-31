@@ -11,7 +11,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const email = (form.get('email') as string)?.trim().toLowerCase();
   const requestedAdmin = form.get('is_admin') === 'on';
 
-  if (!email) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return redirect('/admin?error=missing_fields', 302);
   }
 

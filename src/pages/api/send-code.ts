@@ -7,7 +7,7 @@ export const POST: APIRoute = async ({ request, redirect }) => {
   const form = await request.formData();
   const email = (form.get('email') as string)?.trim().toLowerCase();
 
-  if (!email) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return redirect('/login?error=missing_email', 302);
   }
 
