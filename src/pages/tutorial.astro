@@ -1,0 +1,61 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Tutorial — The Trip Culling Game">
+  <div class="container" style="max-width:980px">
+    <div class="pixel-box" style="padding:20px;margin-bottom:24px;display:flex;justify-content:center;align-items:center;background:linear-gradient(180deg, rgba(255,107,53,0.12), rgba(30,27,54,0.96));">
+      <img
+        src="/tutorial-banner.webp"
+        alt="The Trip Culling Game icon"
+        style="width:min(100%, 220px);height:auto;image-rendering:auto;"
+      />
+    </div>
+
+    <h2 class="section-title">HOW THE GAME WORKS</h2>
+
+    <section class="section">
+      <div class="pixel-box" style="padding:24px;">
+        <h3 class="section-title">1. GET INVITED</h3>
+        <p class="form-hint" style="font-size:0.75rem;">
+          Only invited players can enter the game. An admin adds your email, you receive an invitation, and then you request your login code from the login page.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="pixel-box" style="padding:24px;">
+        <h3 class="section-title">2. SUBMIT A DESTINATION</h3>
+        <p class="form-hint" style="font-size:0.75rem;">
+          During submission, each traveler proposes one destination with photos and a description. Keep it unique. Once voting starts, normal players can no longer edit their destination. If the submission bonus rule is enabled, having an active destination when phase 1 ends adds +M to every vote option for that round.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="pixel-box" style="padding:24px;">
+        <h3 class="section-title">3. CAST YOUR POINTS</h3>
+        <p class="form-hint" style="font-size:0.75rem;">
+          During voting, the game activates the configured point values. Each point value can be assigned once, and each destination can receive at most one of your point values. If the profile photo bonus rule is enabled, players with a real profile photo when phase 1 ends get +N to every vote option for that round.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="pixel-box" style="padding:24px;">
+        <h3 class="section-title">4. DRAWS AND FINAL RESULT</h3>
+        <p class="form-hint" style="font-size:0.75rem;">
+          If there is a tie for first place, the game should move into a draw phase automatically with the tied destinations only. When the game reaches the final stage, the winner and the podium are shown on the home page.
+        </p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="pixel-box" style="padding:24px;">
+        <h3 class="section-title">5. ADMINS AND GAME MASTERS</h3>
+        <p class="form-hint" style="font-size:0.75rem;">
+          Admins can invite players, manage destinations, and move the game forward. Only invited players can log in. Game masters are a higher-privilege admin role configured from env, and they are the only ones who can grant or remove admin access for others.
+        </p>
+      </div>
+    </section>
+  </div>
+</Layout>

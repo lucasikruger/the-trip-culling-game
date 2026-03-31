@@ -1,0 +1,149 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import { reconcileGameState } from '../lib/game-state';
+import {
+  getDestinationPhotos,
+  MAX_CAPTION_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+} from '../lib/destination-images';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const id = Astro.url.searchParams.get('id') ?? '';
+if (!id) return Astro.redirect('/submit');
+
+const { data: dest } = await supabase
+  .from('destinations')
+  .select('*')
+  .eq('id', id)
+  .eq('is_removed', false)
+  .single();
+
+if (!dest) return Astro.redirect('/submit?error=not_found');
+
+const { stage } = await reconcileGameState({
+  gameUrl: new URL('/', Astro.url).toString(),
+});
+
+const isCreator = dest.created_by === user.email;
+const isAdmin = user.is_admin;
+
+if (!isAdmin && (!isCreator || stage !== 'submission')) {
+  return Astro.redirect('/submit?error=forbidden');
+}
+
+const error = Astro.url.searchParams.get('error') ?? '';
+const errorMessages: Record<string, string> = {
+  missing_name: 'Please enter a destination name.',
+  name_taken: 'That name already exists.',
+  upload_failed: 'Photo upload failed.',
+  invalid_image: 'Please upload image files only.',
+  caption_without_photo: 'Add an image before writing a caption.',
+  caption_too_long: 'Each photo caption must be 80 characters or less.',
+  description_too_long: 'Description must be 1200 characters or less.',
+  db_error: 'Database error.',
+  forbidden: 'You do not have permission to edit this destination.',
+};
+
+const photos = getDestinationPhotos(dest);
+---
+<Layout title="Edit Destination — The Trip Culling Game">
+  <div class="container" style="max-width:760px">
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+    </div>
+
+    <h2 class="section-title">{dest.is_example ? 'EDIT EXAMPLE DESTINATION' : 'EDIT DESTINATION'}</h2>
+    {error && <div class="alert alert-error">{errorMessages[error] ?? error}</div>}
+
+    <form method="POST" action="/api/edit-destination" enctype="multipart/form-data" class="pixel-box" style="padding:24px;">
+      <input type="hidden" name="destination_id" value={dest.id} />
+
+      <div class="form-group">
+        <label class="form-label" for="name">DESTINATION NAME</label>
+        <input class="form-input" type="text" id="name" name="name" value={dest.name} required maxlength="80" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="description">DESCRIPTION</label>
+        <textarea class="form-textarea" id="description" name="description" maxlength={MAX_DESCRIPTION_LENGTH} data-char-count data-char-max={MAX_DESCRIPTION_LENGTH}>{dest.description}</textarea>
+        <p class="form-hint"><span data-char-output>{dest.description?.length ?? 0}</span> / {MAX_DESCRIPTION_LENGTH}</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">PHOTOS</label>
+        <div class="photo-slot-grid" data-photo-slot-grid>
+          {Array.from({ length: 5 }, (_, index) => {
+            const photo = photos[index];
+            return (
+              <div class="photo-slot" data-photo-slot>
+                <div class="photo-slot-preview">
+                  {photo ? <img src={photo.url} alt={`${dest.name} ${index + 1}`} /> : <span>PHOTO {index + 1}</span>}
+                </div>
+                <label class="form-file-label photo-slot-label" for={`photo_${index}`}>
+                  {photo ? 'REPLACE IMAGE' : 'CHOOSE IMAGE'}
+                </label>
+                <input class="form-file-input" type="file" id={`photo_${index}`} name={`photo_${index}`} accept="image/*" data-photo-input />
+                <input class="form-input photo-slot-caption" type="text" name={`caption_${index}`} maxlength={MAX_CAPTION_LENGTH} value={photo?.caption ?? ''} placeholder="Short caption" data-char-count data-char-max={MAX_CAPTION_LENGTH} />
+                <p class="form-hint"><span data-char-output>{photo?.caption?.length ?? 0}</span> / {MAX_CAPTION_LENGTH}</p>
+                {photo && (
+                  <label class="photo-slot-remove">
+                    <input type="checkbox" name={`remove_photo_${index}`} />
+                    REMOVE THIS PHOTO
+                  </label>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p class="form-hint">Replace, recaption, or remove each slot. Up to 5 images total.</p>
+      </div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">SAVE CHANGES</button>
+        <a href={dest.is_example ? '/admin' : '/submit'} class="btn btn-outline">CANCEL</a>
+      </div>
+    </form>
+  </div>
+</Layout>
+
+<script>
+  document.querySelectorAll('[data-photo-input]').forEach(input => {
+    input.addEventListener('change', () => {
+      const slot = (input as HTMLInputElement).closest('[data-photo-slot]');
+      const preview = slot?.querySelector('.photo-slot-preview');
+      const label = slot?.querySelector('.photo-slot-label');
+      const file = (input as HTMLInputElement).files?.[0];
+      if (!preview || !label || !file) return;
+
+      const image = document.createElement('img');
+      image.src = URL.createObjectURL(file);
+      image.alt = file.name;
+      image.onload = () => URL.revokeObjectURL(image.src);
+      preview.replaceChildren(image);
+      label.textContent = file.name;
+    });
+  });
+
+  document.querySelectorAll('.photo-slot-caption').forEach(input => {
+    input.addEventListener('input', () => {
+      const field = input as HTMLInputElement;
+      const max = Number(field.dataset.charMax ?? '80');
+      field.value = field.value.slice(0, max);
+    });
+  });
+
+  document.querySelectorAll('[data-char-count]').forEach(input => {
+    const updateCount = () => {
+      const field = input as HTMLInputElement | HTMLTextAreaElement;
+      const output = field.parentElement?.querySelector('[data-char-output]');
+      if (output) output.textContent = String(field.value.length);
+    };
+
+    input.addEventListener('input', updateCount);
+    updateCount();
+  });
+</script>

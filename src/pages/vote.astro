@@ -1,0 +1,237 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import { reconcileGameState } from '../lib/game-state';
+import { applyVoteBonus, getActiveVotePoints } from '../lib/voting';
+import DestinationGallery from '../components/DestinationGallery.astro';
+import {
+  getDestinationPhotos,
+  getPrimaryPhoto,
+} from '../lib/destination-images';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const { settings, stage } = await reconcileGameState({
+  gameUrl: new URL('/', Astro.url).toString(),
+});
+const { data: participant } = await supabase
+  .from('participants')
+  .select('current_vote_bonus_points')
+  .eq('email', user.email)
+  .maybeSingle();
+
+let destQuery = supabase
+  .from('destinations')
+  .select('*')
+  .eq('is_removed', false)
+  .eq('is_example', false)
+  .order('created_at', { ascending: true });
+
+if (stage === 'draw') {
+  destQuery = destQuery.eq('is_in_draw', true);
+}
+
+const { data: destinations } = await destQuery;
+
+const { data: myVotes } = await supabase
+  .from('votes')
+  .select('destination_id, points')
+  .eq('participant_email', user.email)
+  .order('points', { ascending: false });
+
+const bonusPoints = participant?.current_vote_bonus_points ?? 0;
+const activePoints = applyVoteBonus(
+  getActiveVotePoints(settings?.vote_point_options ?? [10, 50, 100], destinations?.length ?? 0),
+  bonusPoints,
+);
+const error = Astro.url.searchParams.get('error') ?? '';
+const success = Astro.url.searchParams.get('success') ?? '';
+const errorMessages: Record<string, string> = {
+  wrong_stage: 'Voting is not currently open.',
+  missing_fields: 'Please assign every available point value.',
+  invalid_points: 'Invalid point value selected.',
+  invalid_destination: 'One of the selected destinations is no longer available.',
+  duplicate_destinations: 'Each point value must be assigned to a different destination.',
+  db_error: 'Database error. Please try again.',
+};
+
+const myVotesByPoint = Object.fromEntries((myVotes ?? []).map(vote => [vote.points, vote.destination_id])) as Record<number, string>;
+const currentVotes: Array<{ points: number; destination: any }> = activePoints
+  .map(points => {
+    const destinationId = myVotesByPoint[points];
+    const destination = (destinations ?? []).find(dest => dest.id === destinationId) ?? null;
+    return destination ? { points, destination } : null;
+  })
+  .filter(Boolean) as Array<{ points: number; destination: any }>;
+---
+<Layout title="Vote — The Trip Culling Game">
+  <div class="container" style="max-width:980px">
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+    </div>
+
+    <h2 class="section-title">CAST YOUR VOTE</h2>
+
+    {stage === 'voting' && settings?.voting_deadline && (
+      <div class="text-center mb-32">
+        <div class="home-countdown" data-deadline={new Date(settings.voting_deadline).getTime()}>
+          <span class="home-countdown-label">VOTING ENDS IN</span>
+          <span class="home-countdown-timer" data-countdown-display>--:--:--:--</span>
+        </div>
+      </div>
+    )}
+
+    {stage !== 'voting' && stage !== 'draw' && (
+      <div class="alert alert-error">
+        {stage === 'submission'
+          ? 'Voting has not started yet. Wait for the submission phase to end.'
+          : stage === 'decided'
+            ? 'Voting is closed. The winner has been decided!'
+            : 'Voting is not currently open.'}
+      </div>
+    )}
+
+    {stage === 'draw' && (
+      <div class="alert" style="border-color:#ff9800;color:#ff9800;margin-bottom:20px;">
+        ⚔ DRAW PHASE — Only the tied destinations are shown. Vote again to break the tie.
+      </div>
+    )}
+
+    {(stage === 'voting' || stage === 'draw') && (
+      <>
+        {error && <div class="alert alert-error">{errorMessages[error] ?? error}</div>}
+        {success === 'true' && <div class="alert alert-success">Your votes have been cast.</div>}
+        {success === 'removed' && <div class="alert alert-success">Your votes have been removed.</div>}
+
+        {currentVotes.length > 0 && (
+          <div class="pixel-box pixel-box-gold" style="padding:20px;margin-bottom:24px;">
+            <div class="section-title" style="margin-bottom:12px;">YOUR CURRENT VOTES</div>
+            <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:16px;">
+              {currentVotes.map(({ points, destination }) => (
+                <div class="pixel-box" style="padding:14px;border-color:var(--border);">
+                  <div style="font-size:0.8rem;color:var(--gold);margin-bottom:10px;">{points} PTS</div>
+                  <div style="font-size:1rem;color:var(--text);margin-bottom:10px;">{destination.name}</div>
+                  <DestinationGallery
+                    photos={getDestinationPhotos(destination)}
+                    alt={destination.name}
+                    className="detail-photo-gallery"
+                    placeholderClassName="card-photo-placeholder"
+                    showCaptions={false}
+                  />
+                </div>
+              ))}
+            </div>
+            <div style="font-size:0.8rem;color:var(--muted);margin-bottom:16px;">
+              You can update the point assignment below or remove all your votes entirely.
+            </div>
+            <form method="POST" action="/api/remove-vote">
+              <button type="submit" class="btn btn-danger btn-sm">REMOVE ALL VOTES</button>
+            </form>
+          </div>
+        )}
+
+        {(!destinations || destinations.length === 0) ? (
+          <div class="empty-state">No destinations to vote on yet.</div>
+        ) : activePoints.length === 0 ? (
+          <div class="empty-state">Not enough destinations to assign any vote points yet.</div>
+        ) : (
+          <form method="POST" action="/api/cast-vote">
+            <div class="form-group">
+              <label class="form-label">ASSIGN YOUR POINTS</label>
+              <p class="form-hint" style="margin-bottom:12px;">
+                Each destination shows the currently active point values. Assign each point value once. When there are fewer destinations than point options, only the biggest point values are used.
+              </p>
+              {bonusPoints > 0 && (
+                <p class="form-hint" style="margin-bottom:12px;color:var(--gold);">
+                  Your active voting bonus is +{bonusPoints} on every point option for this round.
+                </p>
+              )}
+              <div style="display:flex;flex-direction:column;gap:12px;margin-top:8px;">
+                {destinations.map(dest => (
+                  <div class="vote-card" id={`label-${dest.id}`}>
+                    {getPrimaryPhoto(dest)
+                      ? <img class="vote-thumb" src={getPrimaryPhoto(dest)?.url} alt={dest.name} />
+                      : <div class="vote-thumb vote-thumb-placeholder">NO PHOTO</div>
+                    }
+                    <div class="vote-card-info">
+                      <div class="vote-card-name">{dest.name}</div>
+                    </div>
+                    <div class="vote-card-points">
+                      {activePoints.map(points => (
+                        <>
+                          <input
+                            class="vote-point-choice"
+                            type="radio"
+                            name={`destination_${points}`}
+                            id={`${dest.id}-${points}`}
+                            value={dest.id}
+                            required
+                            checked={myVotesByPoint[points] === dest.id}
+                          />
+                          <label class="vote-point-pill" for={`${dest.id}-${points}`}>{points} PTS</label>
+                        </>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-gold btn-full">{currentVotes.length > 0 ? 'UPDATE VOTES' : 'CAST VOTES'}</button>
+          </form>
+        )}
+      </>
+    )}
+  </div>
+</Layout>
+
+<script>
+  const syncRowSelection = (input: HTMLInputElement) => {
+    if (!input.checked) return;
+    const row = input.closest('.vote-card');
+    if (!row) return;
+    row.querySelectorAll('.vote-point-choice').forEach((otherInput) => {
+      const radio = otherInput as HTMLInputElement;
+      if (radio !== input) radio.checked = false;
+    });
+  };
+
+  const updateVoteSelections = () => {
+    document.querySelectorAll('.vote-card').forEach(card => {
+      const selectedCount = card.querySelectorAll('.vote-point-choice:checked').length;
+      card.classList.toggle('selected', selectedCount > 0);
+    });
+  };
+
+  document.querySelectorAll('.vote-point-choice').forEach(input => {
+    input.addEventListener('change', () => {
+      syncRowSelection(input as HTMLInputElement);
+      updateVoteSelections();
+    });
+  });
+
+  updateVoteSelections();
+
+  const countdown = document.querySelector('[data-countdown-display]');
+  const countdownEl = document.querySelector('[data-deadline]') as HTMLElement | null;
+  if (countdown && countdownEl) {
+    const deadline = Number(countdownEl.dataset.deadline);
+    const tick = () => {
+      const diff = deadline - Date.now();
+      if (diff <= 0) {
+        countdown.textContent = 'VOTING IS OVER!';
+        return;
+      }
+      const days = Math.floor(diff / 86400000);
+      const hours = Math.floor((diff % 86400000) / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      countdown.textContent =
+        `${String(days).padStart(2,'0')}d ${String(hours).padStart(2,'0')}h ${String(minutes).padStart(2,'0')}m ${String(seconds).padStart(2,'0')}s`;
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+</script>

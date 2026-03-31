@@ -1,0 +1,515 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import { getDestinationPhotos } from '../lib/destination-images';
+import { getDrawDurationMinutes, splitDurationMinutes, STAGE_INFO } from '../lib/stage';
+import { reconcileGameState } from '../lib/game-state';
+
+const user = Astro.locals.user;
+if (!user?.is_admin) return Astro.redirect('/');
+const revealedCreatorId = Astro.cookies.get('revealed_creator_id')?.value ?? '';
+const canManageAdminRoles = user.is_super_admin;
+
+const { settings, stage } = await reconcileGameState({
+  gameUrl: new URL('/', Astro.url).toString(),
+});
+const info = STAGE_INFO[stage];
+const drawDurationParts = splitDurationMinutes(getDrawDurationMinutes(settings));
+
+const { data: destinations } = await supabase
+  .from('destinations')
+  .select('*')
+  .order('created_at', { ascending: true });
+
+const { data: participants } = await supabase
+  .from('participants')
+  .select('email, is_admin, is_super_admin, is_active, email_notifications_enabled')
+  .order('email', { ascending: true });
+
+const { data: votes } = await supabase.from('votes').select('destination_id, points');
+const voteMap: Record<string, number> = {};
+(votes ?? []).forEach(vote => {
+  voteMap[vote.destination_id] = (voteMap[vote.destination_id] ?? 0) + vote.points;
+});
+
+const error = Astro.url.searchParams.get('error') ?? '';
+const success = Astro.url.searchParams.get('success') ?? '';
+
+const allowedPoints: number[] = settings?.vote_point_options ?? [10, 50, 100];
+const errorMessages: Record<string, string> = {
+  missing_fields: 'Please fill in all required fields.',
+  not_found: 'Destination not found.',
+  invalid_points: 'Point options must be comma-separated positive numbers.',
+  invalid_draw_duration: 'Draw duration must be a positive number of hours.',
+  invalid_bonus_points: 'Bonus points must be zero or a positive whole number.',
+  too_many_points: 'You can configure at most 5 vote point options.',
+  no_changes: 'No changes to save.',
+  db_error: 'Database error.',
+  invalid_code: 'Invalid or expired code.',
+  expired_code: 'Code has expired. Try again.',
+  cannot_remove_self: 'You cannot remove your own admin account.',
+  admin_role_locked: 'Only game masters can grant or remove admin access.',
+  cannot_change_game_master: 'Game master accounts cannot be changed here.',
+  vote_points_locked: 'Vote point options cannot be changed once the voting phase has started.',
+  deadlines_must_be_future: 'Submission and voting deadlines must both be in the future.',
+  voting_before_submission: 'Voting deadline must be after the submission deadline.',
+};
+const successMessages: Record<string, string> = {
+  removed: 'Destination removed.',
+  settings_updated: 'Settings saved successfully.',
+  phase_advanced: 'Game advanced to the next phase.',
+  draw_started: 'Draw phase started! Votes reset for tied destinations.',
+  edited: 'Destination updated.',
+  example_created: 'Example destination created.',
+  participant_saved: 'Participant saved.',
+  participant_removed: 'Participant removed.',
+  participant_restored: 'Participant restored.',
+  participant_emails_enabled: 'Notification emails enabled.',
+  participant_emails_disabled: 'Notification emails disabled.',
+  admin_granted: 'Admin access granted.',
+  admin_revoked: 'Admin access removed.',
+  creator_revealed: 'Creator revealed for one destination.',
+  game_restarted: 'Game restarted! All votes cleared, new deadlines set.',
+  database_reset: 'Database reset complete. Only game masters were kept.',
+};
+const nextStageByCurrent = {
+  submission: 'voting',
+  voting: 'decided',
+  draw: 'decided',
+  decided: null,
+} as const;
+const nextStage = nextStageByCurrent[stage];
+
+function formatDate(iso: string | null) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+---
+<Layout title="Admin — The Trip Culling Game">
+  <div class="container">
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+    </div>
+
+    <h2 class="section-title">ADMIN PANEL</h2>
+    {error && <div class="alert alert-error">{errorMessages[error] ?? error}</div>}
+    {success && <div class="alert alert-success">{successMessages[success] ?? success}</div>}
+
+    <div class="pixel-box" style={`padding:16px;margin-bottom:32px;border-color:${info.color};color:${info.color}`}>
+      CURRENT STAGE: {info.label}
+    </div>
+
+    <section class="section">
+      <h3 class="section-title">PHASE CONTROL</h3>
+
+      <div class="pixel-box" style="padding:24px;border-color:var(--danger);box-shadow:4px 4px 0 #000, 0 0 16px rgba(255,51,102,0.12);">
+        {nextStage ? (
+          <>
+            <div class="alert alert-error" style="margin-bottom:20px;">
+              WARNING: This will immediately move the game from {STAGE_INFO[stage].label} to {STAGE_INFO[nextStage].label}.
+            </div>
+            <form method="POST" action="/api/admin/request-next-phase" onsubmit={`return confirm('Advance from ${STAGE_INFO[stage].label} to ${STAGE_INFO[nextStage].label}?')`}>
+              <button type="submit" class="btn btn-danger">GO TO NEXT PHASE</button>
+            </form>
+          </>
+        ) : (
+          <div class="alert alert-info" style="margin-bottom:0;">The game is already in the final phase.</div>
+        )}
+      </div>
+    </section>
+
+    {stage !== 'submission' && (
+      <section class="section">
+        <h3 class="section-title">RESTART GAME</h3>
+        <form method="POST" action="/api/admin/request-restart-game" class="pixel-box admin-timezone-form" style="padding:24px;border-color:var(--danger);">
+          <input type="hidden" name="timezone_offset_minutes" value="" data-timezone-offset />
+          <div class="alert alert-error" style="margin-bottom:20px;">
+            ⚠ This will delete ALL votes and reset the game to the submission phase. Players and destinations are kept as-is.
+          </div>
+          <div class="admin-form-grid" style="margin-bottom:20px;">
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="restart-sub-dl">NEW SUBMISSION DEADLINE</label>
+              <div class="datetime-input-wrap">
+                <input class="form-input" type="datetime-local" id="restart-sub-dl" name="submission_deadline" required />
+                <button type="button" class="datetime-picker-btn" data-open-datetime-picker="restart-sub-dl">OPEN CALENDAR</button>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0;">
+              <label class="form-label" for="restart-vote-dl">NEW VOTING DEADLINE</label>
+              <div class="datetime-input-wrap">
+                <input class="form-input" type="datetime-local" id="restart-vote-dl" name="voting_deadline" required />
+                <button type="button" class="datetime-picker-btn" data-open-datetime-picker="restart-vote-dl">OPEN CALENDAR</button>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-danger" onclick="return confirm('Restart the game? All votes will be deleted permanently.')">
+            RESTART GAME
+          </button>
+        </form>
+      </section>
+    )}
+
+    {canManageAdminRoles && (
+      <section class="section">
+        <h3 class="section-title">RESET DATABASE</h3>
+        <form method="POST" action="/api/admin/request-reset-database" class="pixel-box" style="padding:24px;border-color:var(--danger);box-shadow:4px 4px 0 #000, 0 0 16px rgba(255,51,102,0.12);">
+          <div class="alert alert-error" style="margin-bottom:20px;">
+            ☠ This wipes the database back to a clean state. All destinations, votes, and non-game-master participants will be deleted. Only game masters remain.
+          </div>
+          <button
+            type="submit"
+            class="btn btn-danger"
+            onclick="return confirm('Reset the database? This deletes all destinations, votes, and non-game-master participants.')"
+          >
+            RESET DATABASE
+          </button>
+        </form>
+      </section>
+    )}
+
+    <section class="section">
+      <h3 class="section-title">GAME SETTINGS</h3>
+      {stage === 'decided' ? (
+        <div class="pixel-box" style="padding:20px;border-color:var(--muted);color:var(--muted);font-size:0.8rem;">
+          ⚙ Settings are locked — the game has ended. Use RESTART GAME above to start a new round.
+        </div>
+      ) : (
+        <form method="POST" action="/api/admin/update-settings" class="pixel-box admin-timezone-form" style="padding:24px;">
+          <input type="hidden" name="timezone_offset_minutes" value="" data-timezone-offset />
+          <div class="admin-form-grid">
+            {stage === 'submission' && (
+              <div class="form-group">
+                <label class="form-label" for="sub-dl">SUBMISSION DEADLINE</label>
+                <div class="datetime-input-wrap">
+                  <input
+                    class="form-input"
+                    type="datetime-local"
+                    id="sub-dl"
+                    name="submission_deadline"
+                    value=""
+                    data-iso-value={settings?.submission_deadline ?? ''}
+                  />
+                  <button type="button" class="datetime-picker-btn" data-open-datetime-picker="sub-dl">OPEN CALENDAR</button>
+                </div>
+              </div>
+            )}
+            {(stage === 'submission' || stage === 'voting') && (
+              <div class="form-group">
+                <label class="form-label" for="vote-dl">VOTING DEADLINE</label>
+                <div class="datetime-input-wrap">
+                  <input
+                    class="form-input"
+                    type="datetime-local"
+                    id="vote-dl"
+                    name="voting_deadline"
+                    value=""
+                    data-iso-value={settings?.voting_deadline ?? ''}
+                  />
+                  <button type="button" class="datetime-picker-btn" data-open-datetime-picker="vote-dl">OPEN CALENDAR</button>
+                </div>
+              </div>
+            )}
+            {stage !== 'decided' && (
+              <div class="form-group">
+                <label class="form-label" for="draw-duration-hours">DRAW DURATION</label>
+                <div class="duration-input-wrap">
+                  <div class="duration-input-block">
+                    <input class="form-input" type="number" id="draw-duration-hours" name="draw_duration_hours" min="0" value={String(drawDurationParts.hours)} />
+                    <span class="duration-input-label">HOURS</span>
+                  </div>
+                  <div class="duration-input-block">
+                    <input class="form-input" type="number" id="draw-duration-minutes" name="draw_duration_minutes" min="0" max="59" value={String(drawDurationParts.minutes)} />
+                    <span class="duration-input-label">MINUTES</span>
+                  </div>
+                </div>
+                <p class="form-hint">Used when starting an automatic draw phase.</p>
+              </div>
+            )}
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="pts-opts">VOTE POINT OPTIONS</label>
+            <input
+              class="form-input"
+              type="text"
+              id="pts-opts"
+              name="vote_point_options"
+              value={allowedPoints.join(', ')}
+              placeholder="10, 50, 100"
+              disabled={stage === 'voting'}
+            />
+            <p class="form-hint">
+              Up to 5 point options. The biggest values are used first when there are fewer destinations than point options.
+              {stage === 'voting' ? ' Locked during voting phase.' : ''}
+            </p>
+          </div>
+          <div class="pixel-box" style="padding:18px;margin-bottom:20px;">
+            <div class="form-label" style="margin-bottom:12px;">BONUS RULES FOR PHASE 2</div>
+            <div class="admin-form-grid">
+              <div class="form-group">
+                <label class="photo-slot-remove admin-inline-toggle" style="margin-bottom:12px;">
+                  <input type="checkbox" name="bonus_profile_photo_enabled" checked={Boolean(settings?.bonus_profile_photo_enabled)} />
+                  PROFILE PHOTO BONUS
+                </label>
+                <input
+                  class="form-input"
+                  type="number"
+                  name="bonus_profile_photo_points"
+                  min="0"
+                  value={String(settings?.bonus_profile_photo_points ?? 1)}
+                />
+                <p class="form-hint">If enabled, players with a profile photo at the phase 1 → 2 switch get +N on every vote option.</p>
+              </div>
+              <div class="form-group">
+                <label class="photo-slot-remove admin-inline-toggle" style="margin-bottom:12px;">
+                  <input type="checkbox" name="bonus_submission_enabled" checked={Boolean(settings?.bonus_submission_enabled)} />
+                  SUBMISSION BONUS
+                </label>
+                <input
+                  class="form-input"
+                  type="number"
+                  name="bonus_submission_points"
+                  min="0"
+                  value={String(settings?.bonus_submission_points ?? 1)}
+                />
+                <p class="form-hint">If enabled, players who had an active destination when phase 1 ended get +M on every vote option.</p>
+              </div>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">SAVE SETTINGS</button>
+        </form>
+      )}
+    </section>
+
+    <section class="section">
+      <h3 class="section-title">PARTICIPANTS</h3>
+      <form method="POST" action="/api/admin/upsert-participant" class="pixel-box" style="padding:24px;margin-bottom:20px;">
+        <div class="admin-grid">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label" for="participant-email">EMAIL</label>
+            <input class="form-input" type="email" id="participant-email" name="email" placeholder="traveler@example.com" required />
+          </div>
+          {canManageAdminRoles ? (
+            <label class="photo-slot-remove admin-inline-toggle">
+              <input type="checkbox" name="is_admin" />
+              ADMIN
+            </label>
+          ) : (
+            <div class="form-hint" style="align-self:center;margin-bottom:0;">Only game masters can invite new admins.</div>
+          )}
+          <button type="submit" class="btn btn-primary">ADD / REACTIVATE</button>
+        </div>
+      </form>
+
+      <div style="overflow-x:auto;">
+        <table class="pixel-table">
+          <thead>
+            <tr>
+              <th>EMAIL</th>
+              <th>ROLE</th>
+              <th>STATUS</th>
+              <th>EMAILS</th>
+              <th>ACTIONS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(participants ?? []).map(participant => (
+              <tr>
+                <td style="word-break:break-word;">{participant.email}</td>
+                <td>
+                  {participant.is_super_admin
+                    ? 'GAME MASTER'
+                    : participant.is_admin
+                      ? 'ADMIN'
+                      : 'PLAYER'}
+                </td>
+                <td>{participant.is_active ? 'ACTIVE' : 'REMOVED'}</td>
+                <td>{participant.email_notifications_enabled ? 'ON' : 'OFF'}</td>
+                <td>
+                  <div class="admin-action-group">
+                    <form method="POST" action="/api/admin/toggle-participant">
+                      <input type="hidden" name="email" value={participant.email} />
+                      <input type="hidden" name="action" value={participant.is_active ? 'remove' : 'restore'} />
+                      <button type="submit" class={`btn btn-sm admin-action-btn ${participant.is_active ? 'btn-danger' : 'btn-outline'}`} disabled={participant.is_super_admin}>
+                        {participant.is_active ? 'REMOVE' : 'RESTORE'}
+                      </button>
+                    </form>
+                    {canManageAdminRoles && !participant.is_super_admin && participant.is_active && (
+                      <form method="POST" action="/api/admin/toggle-participant">
+                        <input type="hidden" name="email" value={participant.email} />
+                        <input type="hidden" name="action" value={participant.is_admin ? 'revoke_admin' : 'grant_admin'} />
+                        <button type="submit" class="btn btn-sm btn-outline admin-action-btn">
+                          {participant.is_admin ? 'REMOVE ADMIN' : 'MAKE ADMIN'}
+                        </button>
+                      </form>
+                    )}
+                    <form method="POST" action="/api/admin/toggle-participant">
+                      <input type="hidden" name="email" value={participant.email} />
+                      <input type="hidden" name="action" value="toggle_emails" />
+                      <button type="submit" class="btn btn-sm btn-outline admin-action-btn">
+                        TURN EMAILS {participant.email_notifications_enabled ? 'OFF' : 'ON'}
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="admin-header-row">
+        <h3 class="section-title" style="margin-bottom:0;">DESTINATIONS</h3>
+        <a href="/admin/example-new" class="btn btn-outline btn-sm">ADD EXAMPLE</a>
+      </div>
+
+      {(!destinations || destinations.length === 0) ? (
+        <div class="empty-state">No destinations yet.</div>
+      ) : (
+        <div style="overflow-x:auto;">
+          <table class="pixel-table">
+            <thead>
+              <tr>
+                <th>NAME</th>
+                <th>BY</th>
+                <th>SUBMITTED</th>
+                <th>POINTS</th>
+                <th>PHOTOS</th>
+                <th>STATUS</th>
+                <th>ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              {destinations.map(dest => (
+                <tr>
+                  <td style="max-width:180px;word-break:break-word;">{dest.name}</td>
+                  <td>
+                    {dest.is_example ? (
+                      'EXAMPLE'
+                    ) : revealedCreatorId === dest.id ? (
+                      dest.created_by
+                    ) : (
+                      <form method="POST" action="/api/admin/request-reveal-creator" class="admin-reveal-form" onsubmit="return confirm('Reveal the creator of this destination?')">
+                        <input type="hidden" name="destination_id" value={dest.id} />
+                        <span class="masked-email">*****</span>
+                        <button type="submit" class="eye-btn" title="Reveal creator">👁</button>
+                      </form>
+                    )}
+                  </td>
+                  <td style="font-size:0.75rem;white-space:nowrap;">{formatDate(dest.created_at)}</td>
+                  <td style="color:var(--gold);">{dest.is_removed || dest.is_example ? '—' : (voteMap[dest.id] ?? 0)}</td>
+                  <td>{getDestinationPhotos(dest).length}</td>
+                  <td>
+                    {dest.is_example
+                      ? <span class="badge-example">EXAMPLE</span>
+                      : dest.is_removed
+                        ? <span class="badge-removed" title={dest.removal_reason ?? ''}>REMOVED</span>
+                        : <span style="color:var(--green);font-size:0.75rem;">ACTIVE</span>
+                    }
+                  </td>
+                  <td>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                      {stage === 'decided' ? (
+                        <span style="color:var(--muted);font-size:0.7rem;">LOCKED IN DECIDED PHASE</span>
+                      ) : !dest.is_removed && <a href={`/edit?id=${dest.id}`} class="btn btn-outline btn-sm">EDIT</a>}
+                      {!dest.is_removed && stage !== 'decided' && (
+                        <button
+                          class="btn btn-danger btn-sm"
+                          data-dest-id={dest.id}
+                          data-dest-name={dest.name}
+                          onclick="openRemoveModal(this)"
+                          type="button"
+                        >REMOVE</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  </div>
+
+  <div id="remove-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:200;align-items:center;justify-content:center;">
+    <div class="pixel-box pixel-box-gold" style="padding:28px;max-width:420px;width:90%;">
+      <div class="section-title mb-16">REMOVE DESTINATION</div>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:16px;line-height:2;">
+        Removing: <strong id="modal-dest-name" style="color:var(--primary);"></strong>
+      </p>
+      <form method="POST" action="/api/admin/remove-destination">
+        <input type="hidden" name="destination_id" id="modal-dest-id" />
+        <div class="form-group">
+          <label class="form-label" for="reason">REASON</label>
+          <textarea class="form-textarea" id="reason" name="reason" required placeholder="Explain why this destination is being removed..." style="min-height:80px;"></textarea>
+        </div>
+        <div style="display:flex;gap:12px;">
+          <button type="submit" class="btn btn-danger">CONFIRM REMOVE</button>
+          <button type="button" class="btn btn-outline" onclick="closeRemoveModal()">CANCEL</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</Layout>
+
+<script>
+  function formatIsoForLocalInput(iso: string) {
+    if (!iso) return '';
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hour = String(date.getHours()).padStart(2, '0');
+    const minute = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  }
+
+  function openRemoveModal(btn: HTMLButtonElement) {
+    const modal = document.getElementById('remove-modal') as HTMLElement;
+    const nameEl = document.getElementById('modal-dest-name') as HTMLElement;
+    const idInput = document.getElementById('modal-dest-id') as HTMLInputElement;
+    nameEl.textContent = btn.dataset.destName ?? '';
+    idInput.value = btn.dataset.destId ?? '';
+    modal.style.display = 'flex';
+  }
+
+  function closeRemoveModal() {
+    (document.getElementById('remove-modal') as HTMLElement).style.display = 'none';
+  }
+
+  document.getElementById('remove-modal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeRemoveModal();
+  });
+
+  document.querySelectorAll('.admin-timezone-form').forEach(form => {
+    const offsetInput = form.querySelector('[data-timezone-offset]') as HTMLInputElement | null;
+    if (offsetInput) offsetInput.value = String(new Date().getTimezoneOffset());
+  });
+
+  document.querySelectorAll('input[type="datetime-local"][data-iso-value]').forEach((input) => {
+    const field = input as HTMLInputElement;
+    field.value = formatIsoForLocalInput(field.dataset.isoValue ?? '');
+  });
+
+  document.querySelectorAll('[data-open-datetime-picker]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = (button as HTMLButtonElement).dataset.openDatetimePicker;
+      const target = targetId ? document.getElementById(targetId) as HTMLInputElement | null : null;
+      if (!target) return;
+      target.focus();
+      if (typeof (target as any).showPicker === 'function') {
+        (target as any).showPicker();
+      } else {
+        target.click();
+      }
+    });
+  });
+
+  (window as any).openRemoveModal = openRemoveModal;
+  (window as any).closeRemoveModal = closeRemoveModal;
+</script>

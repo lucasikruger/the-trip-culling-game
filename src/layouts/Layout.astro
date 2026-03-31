@@ -1,0 +1,256 @@
+---
+import { getSafeDisplayName } from '../lib/profile';
+
+interface Props {
+  title?: string;
+}
+
+const { title = 'The Trip Culling Game' } = Astro.props;
+const user = Astro.locals.user;
+const path = new URL(Astro.request.url).pathname;
+const isHomePage = path === '/';
+const displayName = user ? getSafeDisplayName(user.display_name, user.email) : '';
+const avatarUrl = user?.avatar_url || '/default-avatar.webp';
+---
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{title}</title>
+  <link rel="stylesheet" href="/styles/global.css" />
+
+  <!-- Favicon -->
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+  <link rel="icon" href="/favicon-16.png" type="image/png" sizes="16x16" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+  <!-- Open Graph (WhatsApp, iMessage, social previews) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content="Where are we going? Submit, vote, and let the culling decide." />
+  <meta property="og:image" content="/og-image.webp" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+</head>
+<body class={isHomePage ? 'home-page' : undefined}>
+  <nav class={`nav${isHomePage ? ' nav-home' : ''}`}>
+    <div class={`container nav-inner${!user ? ' nav-inner-guest' : ''}`}>
+      <a href="/" class="nav-logo" aria-label="The Trip Culling Game">
+        <span class="nav-logo-small">the <span class="nav-logo-trip">trip</span></span>
+        <span class="nav-logo-main">CULLING GAME</span>
+      </a>
+      <div class="nav-links">
+        <a href="/" class={`nav-link${path === '/' ? ' active' : ''}`}>HOME</a>
+        <a href="/tutorial" class={`nav-link${path === '/tutorial' ? ' active' : ''}`}>TUTORIAL</a>
+        {user && (
+          <>
+            <a href="/submit" class={`nav-link${path === '/submit' ? ' active' : ''}`}>SUBMIT</a>
+            <a href="/vote"   class={`nav-link${path === '/vote'   ? ' active' : ''}`}>VOTE</a>
+            <a href="/profile" class={`nav-link${path === '/profile' ? ' active' : ''}`}>PROFILE</a>
+          </>
+        )}
+        {user?.is_admin && (
+          <a href="/admin" class={`nav-link${path === '/admin' ? ' active' : ''}`}>ADMIN</a>
+        )}
+      </div>
+      <button class="nav-hamburger" id="nav-hamburger" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav-mobile-menu">&#9776;</button>
+      <div class="nav-right">
+        <div class="nav-user">
+          {user ? (
+            <div class="nav-user-card">
+              <div class="nav-user-text">
+                <span>{displayName}</span>
+                {user.is_admin && <span style="color:var(--primary);margin-left:8px;">[ADMIN]</span>}
+                <br />
+                <span class="nav-user-email">{user.email}</span>
+                <br />
+                <a href="/api/logout" class="nav-link" style="font-size:0.7rem;">LOGOUT</a>
+              </div>
+              <button class="nav-avatar-toggle" id="nav-avatar-toggle" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="nav-mobile-menu">
+                <img class="nav-avatar" src={avatarUrl} alt={displayName} />
+              </button>
+            </div>
+          ) : (
+            <a href="/login" class="btn btn-outline btn-sm">LOGIN</a>
+          )}
+        </div>
+      </div>
+    </div>
+    <!-- Mobile menu -->
+    <div class="nav-mobile-menu" id="nav-mobile-menu">
+      <div class="container nav-mobile-links">
+        {user && (
+          <div class="nav-mobile-user">
+            <div class="nav-mobile-user-name">
+              {displayName}
+              {user.is_admin && <span style="color:var(--primary);margin-left:8px;">[ADMIN]</span>}
+            </div>
+            <div class="nav-mobile-user-email">{user.email}</div>
+          </div>
+        )}
+        <a href="/" class={`nav-link${path === '/' ? ' active' : ''}`}>HOME</a>
+        <a href="/tutorial" class={`nav-link${path === '/tutorial' ? ' active' : ''}`}>TUTORIAL</a>
+        {user && (
+          <>
+            <a href="/submit" class={`nav-link${path === '/submit' ? ' active' : ''}`}>SUBMIT</a>
+            <a href="/vote"   class={`nav-link${path === '/vote'   ? ' active' : ''}`}>VOTE</a>
+            <a href="/profile" class={`nav-link${path === '/profile' ? ' active' : ''}`}>PROFILE</a>
+          </>
+        )}
+        {user?.is_admin && (
+          <a href="/admin" class={`nav-link${path === '/admin' ? ' active' : ''}`}>ADMIN</a>
+        )}
+        {user && <a href="/api/logout" class="nav-link nav-mobile-logout">LOGOUT</a>}
+        {!user && <a href="/login" class="btn btn-outline btn-sm" style="width:fit-content;">LOGIN</a>}
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <slot />
+  </main>
+
+  <script>
+    function updateGallery(gallery, nextIndex) {
+      const slides = Array.from(gallery.querySelectorAll('[data-gallery-slide]'));
+      const dots = Array.from(gallery.querySelectorAll('[data-gallery-dot]'));
+      if (slides.length === 0) return;
+
+      const index = ((nextIndex % slides.length) + slides.length) % slides.length;
+      slides.forEach((slide, slideIndex) => {
+        slide.classList.toggle('is-active', slideIndex === index);
+      });
+      dots.forEach((dot, dotIndex) => {
+        dot.classList.toggle('is-active', dotIndex === index);
+      });
+      gallery.dataset.galleryIndex = String(index);
+    }
+
+    document.addEventListener('click', event => {
+      const target = event.target instanceof Element ? event.target : null;
+      const button = target?.closest('[data-gallery-prev], [data-gallery-next]');
+      if (!button) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const gallery = button.closest('[data-gallery]');
+      if (!gallery) return;
+
+      const currentIndex = Number(gallery.dataset.galleryIndex ?? '0');
+      updateGallery(gallery, currentIndex + (button.hasAttribute('data-gallery-next') ? 1 : -1));
+    });
+
+    if (document.body.classList.contains('home-page')) {
+      const nav = document.querySelector('.nav');
+      const title = document.querySelector('.game-title');
+
+      if (nav instanceof HTMLElement && title instanceof HTMLElement) {
+        let ticking = false;
+        const logo = nav.querySelector('.nav-logo');
+
+        const getFadeEnd = () =>
+          Math.max(1, title.offsetTop + title.offsetHeight - nav.offsetHeight);
+
+        const syncHomeNavState = () => {
+          const menuOpen = document.body.classList.contains('mobile-menu-open');
+          if (menuOpen) {
+            nav.style.background = 'rgba(15, 14, 23, 0.98)';
+            nav.style.backdropFilter = 'blur(10px)';
+            nav.style.borderBottomColor = 'rgba(180, 140, 0, 1)';
+            nav.style.boxShadow = '0 4px 0 rgba(0,0,0,1)';
+
+            if (logo instanceof HTMLElement) {
+              logo.style.opacity = '1';
+              logo.style.transform = 'translateY(0)';
+              logo.style.pointerEvents = 'auto';
+            }
+            return;
+          }
+
+          const progress = Math.min(1, Math.max(0, window.scrollY / getFadeEnd()));
+
+          // Fade hero title out as you scroll
+          title.style.opacity = String(1 - progress);
+
+          // Fade nav background in as you scroll
+          nav.style.background = progress > 0
+            ? `rgba(15, 14, 23, ${(progress * 0.96).toFixed(3)})`
+            : '';
+          nav.style.backdropFilter = progress > 0.05 ? `blur(${(progress * 10).toFixed(1)}px)` : '';
+          nav.style.borderBottomColor = `rgba(180, 140, 0, ${(0.25 + progress * 0.75).toFixed(3)})`;
+          nav.style.boxShadow = progress > 0 ? `0 4px 0 rgba(0,0,0,${progress.toFixed(3)})` : '';
+
+          // Fade nav logo in as you scroll
+          if (logo instanceof HTMLElement) {
+            logo.style.opacity = progress.toFixed(3);
+            logo.style.transform = `translateY(${((1 - progress) * -8).toFixed(1)}px)`;
+            logo.style.pointerEvents = progress > 0.5 ? 'auto' : 'none';
+          }
+
+          // Once fully past, mark as scrolled (used for nav logo pointer-events)
+          document.body.classList.toggle('home-scrolled', progress >= 1);
+        };
+
+        syncHomeNavState();
+        (window as any).__syncHomeNavState = syncHomeNavState;
+
+        window.addEventListener('scroll', () => {
+          if (ticking) return;
+          ticking = true;
+          window.requestAnimationFrame(() => { syncHomeNavState(); ticking = false; });
+        }, { passive: true });
+
+        window.addEventListener('resize', syncHomeNavState);
+      }
+    }
+
+    // Hamburger menu
+    const avatarToggle = document.getElementById('nav-avatar-toggle');
+    const hamburger = document.getElementById('nav-hamburger');
+    const mobileMenu = document.getElementById('nav-mobile-menu');
+    const syncMobileMenuState = (isOpen) => {
+      mobileMenu?.classList.toggle('is-open', isOpen);
+      document.body.classList.toggle('mobile-menu-open', isOpen);
+      avatarToggle?.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      hamburger?.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      if (typeof (window as any).__syncHomeNavState === 'function') {
+        (window as any).__syncHomeNavState();
+      }
+    };
+
+    avatarToggle?.addEventListener('click', () => {
+      const isMobile = window.matchMedia('(max-width: 600px)').matches;
+      if (!isMobile) return;
+      syncMobileMenuState(!mobileMenu?.classList.contains('is-open'));
+    });
+
+    hamburger?.addEventListener('click', () => {
+      const isMobile = window.matchMedia('(max-width: 600px)').matches;
+      if (!isMobile) return;
+      syncMobileMenuState(!mobileMenu?.classList.contains('is-open'));
+    });
+
+    mobileMenu?.querySelectorAll('a').forEach(a => {
+      a.addEventListener('click', () => {
+        syncMobileMenuState(false);
+      });
+    });
+
+    document.addEventListener('click', event => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || !mobileMenu?.classList.contains('is-open')) return;
+      if (target.closest('#nav-mobile-menu') || target.closest('#nav-avatar-toggle') || target.closest('#nav-hamburger')) return;
+      syncMobileMenuState(false);
+    });
+
+    window.addEventListener('resize', () => {
+      if (!window.matchMedia('(max-width: 600px)').matches) {
+        syncMobileMenuState(false);
+      }
+    });
+  </script>
+</body>
+</html>

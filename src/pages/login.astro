@@ -1,0 +1,86 @@
+---
+import Layout from '../layouts/Layout.astro';
+
+// Already logged in → go home
+if (Astro.locals.user) return Astro.redirect('/');
+
+const step  = Astro.url.searchParams.get('step')  ?? 'email';
+const email = Astro.url.searchParams.get('email') ?? '';
+const error = Astro.url.searchParams.get('error') ?? '';
+
+const errorMessages: Record<string, string> = {
+  missing_email:  'Please enter your email address.',
+  not_invited:    'This email is not on the guest list.',
+  email_failed:   'Could not send the email. Try again.',
+  missing_fields: 'Please fill in all fields.',
+  invalid_code:   'Invalid code. Double-check and try again.',
+  expired_code:   'Code has expired. Request a new one.',
+};
+---
+<Layout title="Login — The Trip Culling Game">
+  <div class="container">
+
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+    </div>
+
+    <div class="login-box">
+      <div class="login-title">
+        {step === 'email' ? 'ENTER THE GAME' : 'ENTER YOUR CODE'}
+      </div>
+
+      {error && (
+        <div class="alert alert-error">{errorMessages[error] ?? 'Something went wrong.'}</div>
+      )}
+
+      {step === 'email' ? (
+        <form method="POST" action="/api/send-code">
+          <div class="form-group">
+            <label class="form-label" for="email">EMAIL ADDRESS</label>
+            <input
+              class="form-input"
+              type="email"
+              id="email"
+              name="email"
+              placeholder="you@example.com"
+              required
+              autofocus
+            />
+            <p class="form-hint">You must be on the guest list to participate.</p>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">SEND CODE</button>
+        </form>
+      ) : (
+        <form method="POST" action="/api/verify-code">
+          <input type="hidden" name="email" value={email} />
+          <div class="form-group">
+            <label class="form-label" for="code">6-DIGIT CODE</label>
+            <p class="form-hint mb-8">Sent to <span style="color:var(--cyan)">{email}</span></p>
+            <input
+              class="form-input"
+              type="text"
+              id="code"
+              name="code"
+              maxlength="6"
+              placeholder="000000"
+              required
+              autofocus
+              style="letter-spacing:8px;font-size:1.4rem;text-align:center;"
+            />
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">VERIFY</button>
+          <div class="text-center mt-16" style="display:flex;justify-content:center;gap:16px;flex-wrap:wrap;">
+            <a href="/login" class="btn btn-outline btn-sm">USE A DIFFERENT EMAIL</a>
+            <form method="POST" action="/api/send-code" style="display:inline;">
+              <input type="hidden" name="email" value={email} />
+              <button type="submit" class="btn btn-outline btn-sm">
+                RESEND CODE
+              </button>
+            </form>
+          </div>
+        </form>
+      )}
+    </div>
+  </div>
+</Layout>

@@ -1,0 +1,55 @@
+---
+import type { DestinationPhoto } from '../lib/destination-images';
+
+interface Props {
+  photos: DestinationPhoto[];
+  alt: string;
+  className?: string;
+  placeholderClassName?: string;
+  placeholderText?: string;
+  showCaptions?: boolean;
+}
+
+const {
+  photos,
+  alt,
+  className = '',
+  placeholderClassName = '',
+  placeholderText = 'NO PHOTO',
+  showCaptions = true,
+} = Astro.props;
+---
+{photos.length > 0 ? (
+  <div class:list={['destination-gallery', className]} data-gallery>
+    <div class="destination-gallery-track">
+      {photos.map((photo, index) => (
+        <figure
+          class:list={['destination-gallery-slide', index === 0 && 'is-active']}
+          data-gallery-slide
+        >
+          <img src={photo.url} alt={alt} loading="lazy" />
+          {showCaptions && photo.caption && (
+            <figcaption class="destination-gallery-caption">{photo.caption}</figcaption>
+          )}
+        </figure>
+      ))}
+    </div>
+    {photos.length > 1 && (
+      <>
+        <button type="button" class="destination-gallery-arrow prev" data-gallery-prev aria-label="Previous photo">
+          ‹
+        </button>
+        <button type="button" class="destination-gallery-arrow next" data-gallery-next aria-label="Next photo">
+          ›
+        </button>
+        <div class="destination-gallery-dots">
+          {photos.map((_, index) => (
+            <span class:list={['destination-gallery-dot', index === 0 && 'is-active']} data-gallery-dot />
+          ))}
+        </div>
+      </>
+    )}
+  </div>
+) : (
+  <div class:list={[placeholderClassName]}>{placeholderText}</div>
+)}

@@ -1,0 +1,19 @@
+{
+  "name": "next-trip",
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "astro dev --host 0.0.0.0",
+    "build": "astro build",
+    "preview": "astro preview --host 0.0.0.0",
+    "start": "node ./dist/server/entry.mjs",
+    "seed": "node scripts/seed.js"
+  },
+  "dependencies": {
+    "@astrojs/node": "^9.0.0",
+    "@supabase/supabase-js": "^2.46.0",
+    "astro": "^5.0.0",
+    "resend": "^4.0.0",
+    "sharp": "^0.33.5"
+  }
+}

@@ -1,0 +1,104 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import {
+  MAX_CAPTION_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+} from '../../lib/destination-images';
+
+const user = Astro.locals.user;
+if (!user?.is_admin) return Astro.redirect('/');
+
+const error = Astro.url.searchParams.get('error') ?? '';
+const errorMessages: Record<string, string> = {
+  missing_name: 'Please enter a destination name.',
+  name_taken: 'That name already exists.',
+  upload_failed: 'Photo upload failed.',
+  invalid_image: 'Please upload image files only.',
+  caption_without_photo: 'Add an image before writing a caption.',
+  caption_too_long: 'Each photo caption must be 80 characters or less.',
+  description_too_long: 'Description must be 1200 characters or less.',
+  db_error: 'Database error.',
+};
+---
+<Layout title="Add Example — The Trip Culling Game">
+  <div class="container" style="max-width:760px">
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+    </div>
+
+    <h2 class="section-title">ADD EXAMPLE DESTINATION</h2>
+    {error && <div class="alert alert-error">{errorMessages[error] ?? error}</div>}
+
+    <form method="POST" action="/api/admin/create-example" enctype="multipart/form-data" class="pixel-box" style="padding:24px;">
+      <div class="form-group">
+        <label class="form-label" for="name">DESTINATION NAME</label>
+        <input class="form-input" type="text" id="name" name="name" required maxlength="80" />
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="description">DESCRIPTION</label>
+        <textarea class="form-textarea" id="description" name="description" maxlength={MAX_DESCRIPTION_LENGTH} data-char-count data-char-max={MAX_DESCRIPTION_LENGTH}></textarea>
+        <p class="form-hint"><span data-char-output>0</span> / {MAX_DESCRIPTION_LENGTH}</p>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">PHOTOS</label>
+        <div class="photo-slot-grid" data-photo-slot-grid>
+          {Array.from({ length: 5 }, (_, index) => (
+            <div class="photo-slot" data-photo-slot>
+              <div class="photo-slot-preview"><span>PHOTO {index + 1}</span></div>
+              <label class="form-file-label photo-slot-label" for={`photo_${index}`}>CHOOSE IMAGE</label>
+              <input class="form-file-input" type="file" id={`photo_${index}`} name={`photo_${index}`} accept="image/*" data-photo-input />
+              <input class="form-input photo-slot-caption" type="text" name={`caption_${index}`} maxlength={MAX_CAPTION_LENGTH} placeholder="Short caption" data-char-count data-char-max={MAX_CAPTION_LENGTH} />
+              <p class="form-hint"><span data-char-output>0</span> / {MAX_CAPTION_LENGTH}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <button type="submit" class="btn btn-primary">SAVE EXAMPLE</button>
+        <a href="/admin" class="btn btn-outline">CANCEL</a>
+      </div>
+    </form>
+  </div>
+</Layout>
+
+<script>
+  document.querySelectorAll('[data-photo-input]').forEach(input => {
+    input.addEventListener('change', () => {
+      const slot = (input as HTMLInputElement).closest('[data-photo-slot]');
+      const preview = slot?.querySelector('.photo-slot-preview');
+      const label = slot?.querySelector('.photo-slot-label');
+      const file = (input as HTMLInputElement).files?.[0];
+      if (!preview || !label || !file) return;
+
+      const image = document.createElement('img');
+      image.src = URL.createObjectURL(file);
+      image.alt = file.name;
+      image.onload = () => URL.revokeObjectURL(image.src);
+      preview.replaceChildren(image);
+      label.textContent = file.name;
+    });
+  });
+
+  document.querySelectorAll('.photo-slot-caption').forEach(input => {
+    input.addEventListener('input', () => {
+      const field = input as HTMLInputElement;
+      const max = Number(field.dataset.charMax ?? '80');
+      field.value = field.value.slice(0, max);
+    });
+  });
+
+  document.querySelectorAll('[data-char-count]').forEach(input => {
+    const updateCount = () => {
+      const field = input as HTMLInputElement | HTMLTextAreaElement;
+      const output = field.parentElement?.querySelector('[data-char-output]');
+      if (output) output.textContent = String(field.value.length);
+    };
+
+    input.addEventListener('input', updateCount);
+    updateCount();
+  });
+</script>

@@ -1,0 +1,402 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import { STAGE_INFO } from '../lib/stage';
+import { reconcileGameState } from '../lib/game-state';
+import DestinationGallery from '../components/DestinationGallery.astro';
+import {
+  getPrimaryPhoto,
+  getSecondaryPhotos,
+} from '../lib/destination-images';
+
+const { settings, stage } = await reconcileGameState({
+  gameUrl: new URL('/', Astro.url).toString(),
+});
+const info  = STAGE_INFO[stage];
+const DEFAULT_AVATAR_PATH = '/default-avatar.webp';
+
+const { data: destinations } = await supabase
+  .from('destinations')
+  .select('*')
+  .eq('is_removed', false)
+  .order('is_example', { ascending: true }) // examples last
+  .order('created_at', { ascending: true });
+
+// Vote totals
+const { data: votes } = await supabase.from('votes').select('destination_id, points');
+const voteMap: Record<string, number> = {};
+(votes ?? []).forEach(v => {
+  voteMap[v.destination_id] = (voteMap[v.destination_id] ?? 0) + v.points;
+});
+
+const user = Astro.locals.user;
+const needsProfilePhoto = user ? (!user.avatar_url || user.avatar_url === '/default-avatar.webp') : false;
+const { data: participants } = await supabase
+  .from('participants')
+  .select('email, display_name, avatar_url, current_vote_bonus_profile_photo_points, current_vote_bonus_submission_points')
+  .eq('is_active', true)
+  .order('email', { ascending: true });
+
+const participantMap = new Map(
+  (participants ?? []).map((participant) => [
+    participant.email,
+    {
+      name: participant.display_name || participant.email.split('@')[0],
+      avatarUrl: participant.avatar_url || DEFAULT_AVATAR_PATH,
+    },
+  ]),
+);
+
+const visibleDestinations = stage === 'submission'
+  ? (destinations ?? [])
+  : (destinations ?? []).filter((destination) => !destination.is_example && (stage !== 'draw' || destination.is_in_draw));
+
+const dests = visibleDestinations.map(d => ({
+  ...d,
+  total_points: voteMap[d.id] ?? 0,
+  creatorProfile: d.created_by ? participantMap.get(d.created_by) ?? null : null,
+}));
+
+function shufflePlayers<T>(items: T[]): T[] {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+const currentPlayers = shufflePlayers((participants ?? []).map((participant) => ({
+  name: participant.display_name || participant.email.split('@')[0],
+  avatarUrl: participant.avatar_url || DEFAULT_AVATAR_PATH,
+})));
+const { data: myDest } = user
+  ? await supabase
+      .from('destinations')
+      .select('id')
+      .eq('created_by', user.email)
+      .eq('is_removed', false)
+      .maybeSingle()
+  : { data: null };
+
+const currentParticipant = user
+  ? (participants ?? []).find((participant) => participant.email === user.email) ?? null
+  : null;
+const effectiveProfilePhotoBonusPoints = stage === 'submission'
+  ? (settings?.bonus_profile_photo_enabled && user && !needsProfilePhoto
+      ? Number(settings?.bonus_profile_photo_points ?? 0)
+      : 0)
+  : Number(currentParticipant?.current_vote_bonus_profile_photo_points ?? 0);
+const effectiveSubmissionBonusPoints = stage === 'submission'
+  ? (settings?.bonus_submission_enabled && myDest
+      ? Number(settings?.bonus_submission_points ?? 0)
+      : 0)
+  : Number(currentParticipant?.current_vote_bonus_submission_points ?? 0);
+const activeBonusCards = [
+  effectiveProfilePhotoBonusPoints > 0
+    ? {
+        points: effectiveProfilePhotoBonusPoints,
+        title: 'PROFILE PHOTO BONUS',
+        emoji: '📸',
+        description: stage === 'submission'
+          ? 'You currently qualify for extra points on every vote option when phase 2 starts.'
+          : 'Your real profile photo earned extra points on every vote option this round.',
+      }
+    : null,
+  effectiveSubmissionBonusPoints > 0
+    ? {
+        points: effectiveSubmissionBonusPoints,
+        title: 'SUBMISSION BONUS',
+        emoji: '🗺',
+        description: stage === 'submission'
+          ? 'Your current destination qualifies for extra points on every vote option when phase 2 starts.'
+          : 'Submitting before phase 2 started earned extra points on every vote option this round.',
+      }
+    : null,
+].filter(Boolean);
+
+// Sort real trips by points once voting begins, keep examples last
+if (stage !== 'submission') {
+  const real = dests.filter(d => !d.is_example).sort((a, b) => b.total_points - a.total_points);
+  dests.splice(0, dests.length, ...real);
+}
+
+const winner = stage === 'decided' && dests.filter(d => !d.is_example).length > 0
+  ? dests.filter(d => !d.is_example)[0]
+  : null;
+const placementBadgeByRank = ['🥇 1ST', '🥈 2ND', '🥉 3RD'];
+const uniquePointRanks = Array.from(
+  new Set(
+    dests
+      .filter((destination) => !destination.is_example)
+      .map((destination) => destination.total_points)
+      .sort((left, right) => right - left),
+  ),
+).slice(0, 3);
+const placementMap = new Map(
+  dests
+    .filter((destination) => !destination.is_example)
+    .flatMap((destination) => {
+      const rankIndex = uniquePointRanks.indexOf(destination.total_points);
+      return rankIndex >= 0
+        ? [[destination.id, placementBadgeByRank[rankIndex]] as const]
+        : [];
+    }),
+);
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+---
+<Layout title="The Trip Culling Game">
+  <div class="container home-container">
+
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+      {stage !== 'decided' && (
+        <span class="line-stage" style={`color:${info.color}`}>{info.label}</span>
+      )}
+    </div>
+
+    {stage === 'submission' && settings?.submission_deadline && (
+      <div class="text-center mb-32">
+        <div class="home-countdown" data-deadline={new Date(settings.submission_deadline).getTime()}>
+          <span class="home-countdown-label">TIME TO VOTE</span>
+          <span class="home-countdown-timer" data-countdown-display>--:--:--:--</span>
+        </div>
+      </div>
+    )}
+    {stage === 'voting' && settings?.voting_deadline && (
+      <div class="text-center mb-32">
+        <div class="home-countdown" data-deadline={new Date(settings.voting_deadline).getTime()}>
+          <span class="home-countdown-label">VOTING ENDS IN</span>
+          <span class="home-countdown-timer" data-countdown-display>--:--:--:--</span>
+        </div>
+      </div>
+    )}
+    {stage === 'draw' && settings?.draw_deadline && (
+      <div class="text-center mb-32">
+        <div class="home-countdown" data-deadline={new Date(settings.draw_deadline).getTime()} style="border-color:#ff9800;">
+          <span class="home-countdown-label" style="color:#ff9800;">⚔ DRAW ENDS IN</span>
+          <span class="home-countdown-timer" data-countdown-display style="color:#ff9800;text-shadow:2px 2px 0 #7a3a00;">--:--:--:--</span>
+        </div>
+      </div>
+    )}
+
+    <div class="home-divider" />
+
+    {currentPlayers.length > 0 && (
+      <div class="players-showcase pixel-box">
+        <div class="players-showcase-header">
+          <div class="players-showcase-label">CURRENT PLAYERS: {currentPlayers.length}</div>
+          <div class="players-showcase-subtitle">Meet the roster.</div>
+        </div>
+        <div class="players-carousel" data-players-carousel>
+          <div class="players-track" data-players-track>
+            {currentPlayers.map((player, index) => (
+              <div class="player-chip" data-player-chip key={`${player.name}-${index}`}>
+                <div class="player-avatar-frame">
+                  <img class="player-avatar" src={player.avatarUrl} alt={player.name} loading="lazy" width="96" height="96" />
+                </div>
+                <span class="player-name">{player.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )}
+
+    {(user && needsProfilePhoto) || (user && stage === 'submission' && !myDest) ? (
+      <>
+        <div class="home-divider" />
+        <div class="home-section-label">⚠️ TODO REWARDS:</div>
+        {user && needsProfilePhoto && (
+          <div class="profile-photo-reminder pixel-box">
+            <div class="profile-photo-reminder-copy">
+              <div class="profile-photo-reminder-kicker">📸 ADD YOUR PROFILE PHOTO</div>
+              <div class="profile-photo-reminder-title">YOU'RE STILL USING THE DEFAULT AVATAR</div>
+              <p>
+                Put your real face in the game. Upload a profile photo so the roster actually looks like the current players.
+                {settings?.bonus_profile_photo_enabled
+                  ? <span class="reward-highlight"> Reward: win +{settings.bonus_profile_photo_points ?? 0} on every vote option when phase 2 starts.</span>
+                  : ' Reward: no active profile-photo bonus right now.'}
+              </p>
+            </div>
+            <a href="/profile" class="btn btn-primary">UPLOAD PHOTO</a>
+          </div>
+        )}
+        {user && stage === 'submission' && !myDest && (
+          <div class="profile-photo-reminder pixel-box">
+            <div class="profile-photo-reminder-copy">
+              <div class="profile-photo-reminder-kicker">🗺 SUBMIT A DESTINATION</div>
+              <div class="profile-photo-reminder-title">YOU HAVEN'T SUBMITTED YET</div>
+              <p>
+                The submission phase is open. Propose your dream destination before time runs out!
+                {settings?.bonus_submission_enabled
+                  ? <span class="reward-highlight"> Reward: win +{settings.bonus_submission_points ?? 0} on every vote option when phase 2 starts.</span>
+                  : ' Reward: no active submission bonus right now.'}
+              </p>
+            </div>
+            <a href="/submit" class="btn btn-primary">SUBMIT NOW</a>
+          </div>
+        )}
+      </>
+    ) : null}
+
+    <div class="home-divider" />
+    <div class="home-section-label home-section-label-lg">CURRENT DESTINATIONS PROPOSED</div>
+
+    {dests.length === 0 ? (
+      <div class="empty-state">
+        NO DESTINATIONS YET.<br />
+        {user ? 'BE THE FIRST TO SUBMIT ONE!' : 'LOGIN TO SUBMIT THE FIRST ONE!'}
+      </div>
+    ) : (
+      <div class="destination-grid">
+        {dests.map(dest => (
+          <div class={`destination-card${dest.id === winner?.id ? ' winner winner-featured' : ''}`}>
+            {stage !== 'submission' && !dest.is_example && placementMap.has(dest.id) && (
+              <div class="placement-badge">{placementMap.get(dest.id)}</div>
+            )}
+            {dest.is_example && (
+              <div style="position:absolute;top:10px;left:10px;z-index:10;">
+                <span class="badge-example">EXAMPLE</span>
+              </div>
+            )}
+            {getPrimaryPhoto(dest)
+              ? <img class="card-photo" src={getPrimaryPhoto(dest)?.url} alt={dest.name} loading="lazy" />
+              : <div class="card-photo-placeholder">NO PHOTO</div>
+            }
+            <div class="card-info">
+              <div class="card-name-row">
+                <div class="card-name">{dest.name}</div>
+                {dest.id === winner?.id && <div class="winner-mark" aria-hidden="true">👑✈</div>}
+              </div>
+              <div style="font-size:0.65rem;color:var(--muted);margin-bottom:6px;">
+                {formatDate(dest.created_at)}
+              </div>
+              {stage !== 'submission' && !dest.is_example && dest.creatorProfile && (
+                <div class="card-owner">
+                  <img
+                    class="card-owner-avatar"
+                    src={dest.creatorProfile.avatarUrl}
+                    alt={dest.creatorProfile.name}
+                    loading="lazy"
+                    width="24"
+                    height="24"
+                  />
+                  <span>{dest.creatorProfile.name}</span>
+                </div>
+              )}
+              {stage !== 'submission' && !dest.is_example && (
+                <div class="card-points">{dest.total_points} pts</div>
+              )}
+              <div class="card-expand-hint">CLICK TO EXPAND</div>
+            </div>
+            <div class="card-description">
+              {getSecondaryPhotos(dest).length > 0 && (
+                <div class="secondary-gallery-block">
+                  <div class="secondary-gallery-title">OTHER IMAGES</div>
+                  <DestinationGallery
+                    photos={getSecondaryPhotos(dest)}
+                    alt={dest.name}
+                    className="detail-photo-gallery mb-16"
+                    placeholderClassName="card-photo-placeholder"
+                  />
+                </div>
+              )}
+              <div class="secondary-gallery-title description-title">DESCRIPTION</div>
+              <p>{dest.description || 'No description provided.'}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+
+    {activeBonusCards.length > 0 && (
+      <>
+        <div class="home-divider" />
+        <div class="home-section-label home-section-label-lg">YOUR ACTIVE BONUSES</div>
+        <div class="bonus-card-grid">
+          {activeBonusCards.map((bonus) => (
+            <div class="bonus-card pixel-box">
+              <div class="bonus-card-points">+{bonus.points}</div>
+              <div class="bonus-card-title">{bonus.emoji} {bonus.title}</div>
+              <p>{bonus.description}</p>
+            </div>
+          ))}
+        </div>
+      </>
+    )}
+
+  </div>
+</Layout>
+
+<script>
+  document.querySelectorAll('.destination-card').forEach(card => {
+    const hint = card.querySelector('.card-expand-hint');
+    const updateHint = () => {
+      if (hint) {
+        hint.textContent = card.classList.contains('expanded')
+          ? 'CLICK TO COLLAPSE'
+          : 'CLICK TO EXPAND';
+      }
+    };
+
+    updateHint();
+    card.addEventListener('click', event => {
+      const target = event.target as HTMLElement;
+      if (target.closest('.destination-gallery')) return;
+      card.classList.toggle('expanded');
+      updateHint();
+    });
+  });
+
+  document.querySelectorAll('[data-players-carousel]').forEach(carousel => {
+    const track = carousel.querySelector('[data-players-track]') as HTMLElement | null;
+    if (!track) return;
+
+    const originalItems = Array.from(track.querySelectorAll('[data-player-chip]')) as HTMLElement[];
+    const setCarouselState = () => {
+      track.classList.remove('is-animated');
+      track.querySelectorAll('[data-player-clone="true"]').forEach(node => node.remove());
+
+      const shouldAnimate = originalItems.length > 1 && track.scrollWidth > carousel.clientWidth;
+      if (!shouldAnimate) return;
+
+      originalItems.forEach(item => {
+        const clone = item.cloneNode(true) as HTMLElement;
+        clone.dataset.playerClone = 'true';
+        clone.setAttribute('aria-hidden', 'true');
+        track.appendChild(clone);
+      });
+
+      track.classList.add('is-animated');
+    };
+
+    setCarouselState();
+    window.addEventListener('resize', setCarouselState);
+  });
+
+  const countdown = document.querySelector('[data-countdown-display]');
+  const countdownEl = document.querySelector('[data-deadline]') as HTMLElement | null;
+  if (countdown && countdownEl) {
+    const deadline = Number(countdownEl.dataset.deadline);
+    const tick = () => {
+      const diff = deadline - Date.now();
+      if (diff <= 0) {
+        countdown.textContent = 'VOTING HAS STARTED!';
+        return;
+      }
+      const days    = Math.floor(diff / 86400000);
+      const hours   = Math.floor((diff % 86400000) / 3600000);
+      const minutes = Math.floor((diff % 3600000) / 60000);
+      const seconds = Math.floor((diff % 60000) / 1000);
+      countdown.textContent =
+        `${String(days).padStart(2,'0')}d ${String(hours).padStart(2,'0')}h ${String(minutes).padStart(2,'0')}m ${String(seconds).padStart(2,'0')}s`;
+    };
+    tick();
+    setInterval(tick, 1000);
+  }
+</script>

@@ -1,0 +1,39 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.astro/
+
+# Environment variables — NEVER commit real keys
+.env
+.env.local
+.env.*.local
+
+# AI tooling (Claude Code, Codex, etc.)
+.claude/
+.codex/
+AGENTS.md
+CLAUDE.md
+memory/
+
+# Source / uncompressed images — regenerate with scripts if needed
+misc/
+avatars/
+
+# Personal data
+participants.json
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*

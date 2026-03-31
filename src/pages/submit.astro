@@ -1,0 +1,192 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { supabase } from '../lib/supabase';
+import { reconcileGameState } from '../lib/game-state';
+import DestinationGallery from '../components/DestinationGallery.astro';
+import {
+  getPrimaryPhoto,
+  getSecondaryPhotos,
+  MAX_CAPTION_LENGTH,
+  MAX_DESCRIPTION_LENGTH,
+} from '../lib/destination-images';
+
+const user = Astro.locals.user;
+if (!user) return Astro.redirect('/login');
+
+const { stage } = await reconcileGameState({
+  gameUrl: new URL('/', Astro.url).toString(),
+});
+
+const { data: myDest } = await supabase
+  .from('destinations')
+  .select('*')
+  .eq('created_by', user.email)
+  .eq('is_removed', false)
+  .single();
+
+const error = Astro.url.searchParams.get('error') ?? '';
+const success = Astro.url.searchParams.get('success') ?? '';
+const errorMessages: Record<string, string> = {
+  wrong_stage: 'Submission phase is over.',
+  already_submitted: 'You already have a destination in this round.',
+  missing_name: 'Please enter a destination name.',
+  name_taken: 'That destination already exists. Try a different name.',
+  upload_failed: 'Photo upload failed. Try again.',
+  invalid_image: 'Please upload image files only.',
+  caption_without_photo: 'Add an image before writing a caption.',
+  caption_too_long: 'Each photo caption must be 80 characters or less.',
+  description_too_long: 'Description must be 1200 characters or less.',
+  db_error: 'Database error. Please try again.',
+  missing_fields: 'Missing required fields.',
+  not_found: 'Destination not found.',
+  forbidden: 'You can only remove your own destination.',
+};
+
+const myPrimaryPhoto = getPrimaryPhoto(myDest);
+const mySecondaryPhotos = getSecondaryPhotos(myDest);
+---
+<Layout title="Submit — The Trip Culling Game">
+  <div class="container" style="max-width:760px">
+    <div class="game-title">
+      <span class="line-small">the <span class="word-trip">trip</span></span>
+      <span class="line-main">CULLING GAME</span>
+    </div>
+
+    <h2 class="section-title">SUBMIT YOUR DESTINATION</h2>
+
+    {stage !== 'submission' && (
+      <div class="alert alert-error">
+        The submission phase is {stage === 'voting' ? 'over — voting has begun' : 'closed'}.
+      </div>
+    )}
+
+    {error && <div class="alert alert-error">{errorMessages[error] ?? error}</div>}
+    {success === 'true' && <div class="alert alert-success">Your destination has been submitted.</div>}
+    {success === 'removed' && <div class="alert alert-success">Destination removed. You can submit a new one.</div>}
+    {success === 'edited' && <div class="alert alert-success">Destination updated.</div>}
+
+    {myDest && (
+      <div class="pixel-box pixel-box-gold" style="padding:20px;margin-bottom:24px;">
+        <div class="current-destination-header">YOUR CURRENT DESTINATION</div>
+        {myPrimaryPhoto && (
+          <DestinationGallery
+            photos={[myPrimaryPhoto]}
+            alt={myDest.name}
+            className="card-photo-gallery current-destination-gallery-main"
+            placeholderClassName="card-photo-placeholder"
+            showCaptions={false}
+          />
+        )}
+        {mySecondaryPhotos.length > 0 && (
+          <div class="secondary-gallery-block">
+            <div class="secondary-gallery-title">OTHER IMAGES</div>
+            <DestinationGallery
+              photos={mySecondaryPhotos}
+              alt={myDest.name}
+              className="detail-photo-gallery-secondary current-destination-gallery-secondary"
+              placeholderClassName="card-photo-placeholder"
+            />
+          </div>
+        )}
+        <div class="secondary-gallery-block">
+          <div class="detail-text-primary">{myDest.name}</div>
+          <div class="secondary-gallery-title">DESCRIPTION</div>
+          <div class="detail-text-muted">{myDest.description}</div>
+        </div>
+        {stage === 'submission' && (
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <a href={`/edit?id=${myDest.id}`} class="btn btn-outline btn-sm">EDIT</a>
+            <form method="POST" action="/api/remove-my-destination" onsubmit="return confirm('Remove your destination? You can submit a new one.')">
+              <input type="hidden" name="destination_id" value={myDest.id} />
+              <button type="submit" class="btn btn-danger btn-sm">REMOVE</button>
+            </form>
+          </div>
+        )}
+      </div>
+    )}
+
+    {stage === 'submission' && !myDest && (
+      <form method="POST" action="/api/submit-destination" enctype="multipart/form-data" class="pixel-box" style="padding:24px;">
+        <div class="form-group">
+          <label class="form-label" for="name">DESTINATION NAME</label>
+          <input class="form-input" type="text" id="name" name="name" placeholder="e.g. Tokyo, Japan" required maxlength="80" />
+          <p class="form-hint">Must be unique across active destinations.</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="description">SHORT DESCRIPTION</label>
+          <textarea class="form-textarea" id="description" name="description" placeholder="Why should we go here?" maxlength={MAX_DESCRIPTION_LENGTH} data-char-count data-char-max={MAX_DESCRIPTION_LENGTH}></textarea>
+          <p class="form-hint"><span data-char-output>0</span> / {MAX_DESCRIPTION_LENGTH}</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">PHOTOS</label>
+          <div class="photo-slot-grid" data-photo-slot-grid>
+            {Array.from({ length: 5 }, (_, index) => (
+              <div class="photo-slot" data-photo-slot>
+                <div class="photo-slot-preview"><span>PHOTO {index + 1}</span></div>
+                <label class="form-file-label photo-slot-label" for={`photo_${index}`}>CHOOSE IMAGE</label>
+                <input class="form-file-input" type="file" id={`photo_${index}`} name={`photo_${index}`} accept="image/*" data-photo-input />
+                <input class="form-input photo-slot-caption" type="text" name={`caption_${index}`} maxlength={MAX_CAPTION_LENGTH} placeholder="Short caption" data-char-count data-char-max={MAX_CAPTION_LENGTH} />
+                <p class="form-hint"><span data-char-output>0</span> / {MAX_CAPTION_LENGTH}</p>
+              </div>
+            ))}
+          </div>
+          <p class="form-hint">Up to 5 images. Captions are optional and limited to 80 characters.</p>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full">SUBMIT DESTINATION</button>
+      </form>
+    )}
+
+    {stage === 'submission' && myDest && (
+      <div class="alert alert-info">
+        You already submitted a destination. Edit or remove it above.
+      </div>
+    )}
+  </div>
+</Layout>
+
+<script>
+  document.querySelectorAll('[data-photo-input]').forEach(input => {
+    input.addEventListener('change', () => {
+      const slot = (input as HTMLInputElement).closest('[data-photo-slot]');
+      const preview = slot?.querySelector('.photo-slot-preview');
+      const label = slot?.querySelector('.photo-slot-label');
+      const file = (input as HTMLInputElement).files?.[0];
+      if (!preview || !label) return;
+
+      if (!file) {
+        preview.innerHTML = '<span>PHOTO</span>';
+        label.textContent = 'CHOOSE IMAGE';
+        return;
+      }
+
+      const image = document.createElement('img');
+      image.src = URL.createObjectURL(file);
+      image.alt = file.name;
+      image.onload = () => URL.revokeObjectURL(image.src);
+      preview.replaceChildren(image);
+      label.textContent = file.name;
+    });
+  });
+
+  document.querySelectorAll('.photo-slot-caption').forEach(input => {
+    input.addEventListener('input', () => {
+      const field = input as HTMLInputElement;
+      const max = Number(field.dataset.charMax ?? '80');
+      field.value = field.value.slice(0, max);
+    });
+  });
+
+  document.querySelectorAll('[data-char-count]').forEach(input => {
+    const updateCount = () => {
+      const field = input as HTMLInputElement | HTMLTextAreaElement;
+      const output = field.parentElement?.querySelector('[data-char-output]');
+      if (output) output.textContent = String(field.value.length);
+    };
+
+    input.addEventListener('input', updateCount);
+    updateCount();
+  });
+</script>
