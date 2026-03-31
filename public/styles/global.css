@@ -701,12 +701,12 @@ body:not(.home-page) main {
   width: 32px;
   height: 32px;
 }
-.destination-card:not(.winner-featured):not(.expanded) {
+.decided .destination-card:not(.winner-featured):not(.expanded) {
   opacity: 0.62;
   filter: brightness(0.72) saturate(0.82);
 }
-.destination-card:not(.winner-featured):hover,
-.destination-card:not(.winner-featured).expanded {
+.decided .destination-card:not(.winner-featured):hover,
+.decided .destination-card:not(.winner-featured).expanded {
   opacity: 1;
   filter: none;
 }
@@ -1417,7 +1417,7 @@ body:not(.home-page) main {
   /* Hero title */
   .home-page .game-title { padding-top: 20px; padding-bottom: 28px; }
   .home-page .game-title .line-small { font-size: 1.2rem; letter-spacing: 5px; }
-  .home-page .game-title .line-main  { letter-spacing: 2px; }
+  .home-page .game-title .line-main  { font-size: clamp(2.6rem, 10.5vw, 4.4rem); letter-spacing: 1px; }
   .home-page .game-title .line-stage { font-size: 1rem; letter-spacing: 3px; margin-top: 14px; }
 
   /* Section labels */

@@ -253,7 +253,7 @@ function formatDate(iso: string) {
         {user ? 'BE THE FIRST TO SUBMIT ONE!' : 'LOGIN TO SUBMIT THE FIRST ONE!'}
       </div>
     ) : (
-      <div class="destination-grid">
+      <div class={`destination-grid${stage === 'decided' ? ' decided' : ''}`}>
         {dests.map(dest => (
           <div class={`destination-card${dest.id === winner?.id ? ' winner winner-featured' : ''}`}>
             {stage !== 'submission' && !dest.is_example && placementMap.has(dest.id) && (
