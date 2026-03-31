@@ -17,6 +17,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY participants.json ./
 COPY scripts ./scripts
+COPY misc ./misc
 
 EXPOSE 4321
 

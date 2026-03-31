@@ -1,7 +1,7 @@
 import { Resend } from 'resend';
 import { STAGE_INFO, type Stage } from './stage';
 
-const resend = new Resend(import.meta.env.RESEND_API_KEY as string);
+const resend = new Resend(process.env.RESEND_API_KEY as string);
 
 const FROM = 'The Trip Culling Game <noreply@trip-culling-game.lucaskruger.com>';
 
