@@ -300,6 +300,13 @@ body:not(.home-page) main {
   text-shadow: 2px 2px 0 #003a3a;
   letter-spacing: 2px;
 }
+.home-countdown-date {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 1px;
+  margin-top: 6px;
+}
 
 /* ── Stage banner ──────────────────────────────────────────── */
 .stage-banner {

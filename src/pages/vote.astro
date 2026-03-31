@@ -80,6 +80,7 @@ const currentVotes: Array<{ points: number; destination: any }> = activePoints
         <div class="home-countdown" data-deadline={new Date(settings.voting_deadline).getTime()}>
           <span class="home-countdown-label">VOTING ENDS IN</span>
           <span class="home-countdown-timer" data-countdown-display>--:--:--:--</span>
+          <span class="home-countdown-date" data-countdown-date></span>
         </div>
       </div>
     )}
@@ -219,6 +220,13 @@ const currentVotes: Array<{ points: number; destination: any }> = activePoints
   const countdownEl = document.querySelector('[data-deadline]') as HTMLElement | null;
   if (countdown && countdownEl) {
     const deadline = Number(countdownEl.dataset.deadline);
+    const dateEl = countdownEl.querySelector('[data-countdown-date]');
+    if (dateEl) {
+      dateEl.textContent = new Date(deadline).toLocaleString(undefined, {
+        weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+    }
     const tick = () => {
       const diff = deadline - Date.now();
       if (diff <= 0) {
