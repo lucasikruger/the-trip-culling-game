@@ -1,5 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { getSiteUrl } from '../lib/site';
 import { supabase } from '../lib/supabase';
 import { STAGE_INFO } from '../lib/stage';
 import { reconcileGameState } from '../lib/game-state';
@@ -10,7 +11,7 @@ import {
 } from '../lib/destination-images';
 
 const { settings, stage } = await reconcileGameState({
-  gameUrl: new URL('/', Astro.url).toString(),
+  gameUrl: getSiteUrl(),
 });
 const info  = STAGE_INFO[stage];
 const DEFAULT_AVATAR_PATH = '/default-avatar.webp';

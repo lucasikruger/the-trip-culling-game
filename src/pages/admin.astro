@@ -1,5 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { getSiteUrl } from '../lib/site';
 import { supabase } from '../lib/supabase';
 import { getDestinationPhotos } from '../lib/destination-images';
 import { getDrawDurationMinutes, splitDurationMinutes, STAGE_INFO } from '../lib/stage';
@@ -11,7 +12,7 @@ const revealedCreatorId = Astro.cookies.get('revealed_creator_id')?.value ?? '';
 const canManageAdminRoles = user.is_super_admin;
 
 const { settings, stage } = await reconcileGameState({
-  gameUrl: new URL('/', Astro.url).toString(),
+  gameUrl: getSiteUrl(),
 });
 const info = STAGE_INFO[stage];
 const drawDurationParts = splitDurationMinutes(getDrawDurationMinutes(settings));

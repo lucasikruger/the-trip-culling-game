@@ -1,5 +1,6 @@
 ---
 import Layout from '../layouts/Layout.astro';
+import { getSiteUrl } from '../lib/site';
 import { supabase } from '../lib/supabase';
 import { reconcileGameState } from '../lib/game-state';
 import { applyVoteBonus, getActiveVotePoints } from '../lib/voting';
@@ -13,7 +14,7 @@ const user = Astro.locals.user;
 if (!user) return Astro.redirect('/login');
 
 const { settings, stage } = await reconcileGameState({
-  gameUrl: new URL('/', Astro.url).toString(),
+  gameUrl: getSiteUrl(),
 });
 const { data: participant } = await supabase
   .from('participants')

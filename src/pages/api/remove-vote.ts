@@ -1,3 +1,4 @@
+import { getSiteUrl } from '../../lib/site';
 import type { APIRoute } from 'astro';
 import { supabase } from '../../lib/supabase';
 import { reconcileGameState } from '../../lib/game-state';
@@ -7,7 +8,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   if (!user) return redirect('/login', 302);
 
   const { stage } = await reconcileGameState({
-    gameUrl: new URL('/', request.url).toString(),
+    gameUrl: getSiteUrl(),
   });
   if (stage !== 'voting' && stage !== 'draw') {
     return redirect('/vote?error=wrong_stage', 302);

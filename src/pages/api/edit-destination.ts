@@ -1,3 +1,4 @@
+import { getSiteUrl } from '../../lib/site';
 import type { APIRoute } from 'astro';
 import { supabase } from '../../lib/supabase';
 import { reconcileGameState } from '../../lib/game-state';
@@ -39,7 +40,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
 
   // Permission: creator during submission phase, or admin at any time
   const { stage } = await reconcileGameState({
-    gameUrl: new URL('/', request.url).toString(),
+    gameUrl: getSiteUrl(),
   });
 
   const isCreator = dest.created_by === user.email;

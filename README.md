@@ -30,13 +30,14 @@ Game Masters are seeded automatically on first startup from the `GAME_MASTER_EMA
 
 Copy `.env.example` to `.env` and fill in the values.
 
-```
-SUPABASE_URL=https://your-project-id.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-SUPABASE_ANON_KEY=your-anon-key
-RESEND_API_KEY=re_your-api-key
-GAME_MASTER_EMAILS=you@example.com
-```
+| Variable | Description |
+|---|---|
+| `SUPABASE_URL` | Your Supabase project URL (Settings → API) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key — full DB access, keep secret |
+| `SUPABASE_ANON_KEY` | Anon/public key |
+| `RESEND_API_KEY` | Resend API key for sending emails |
+| `GAME_MASTER_EMAILS` | Comma-separated emails seeded as Game Masters on first start |
+| `SITE_URL` | Public URL of the app, no trailing slash (e.g. `https://the-trip-culling-game.lucaskruger.com`). Used in email links and invitations. Defaults to `http://localhost:4321`. |
 
 > **Warning:** Never commit `.env`. It is listed in `.gitignore`. Rotate any keys that were accidentally exposed.
 

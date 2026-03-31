@@ -1,3 +1,4 @@
+import { getSiteUrl } from '../../lib/site';
 import type { APIRoute } from 'astro';
 import { supabase } from '../../../lib/supabase';
 import { sendInvitationEmail } from '../../../lib/email';
@@ -40,7 +41,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
   const shouldSendInvitation = !existingParticipant || !existingParticipant.is_active;
   if (shouldSendInvitation) {
     try {
-      const gameUrl = new URL('/login', request.url).toString();
+      const gameUrl = getSiteUrl() + '/login';
       await sendInvitationEmail(email, {
         gameUrl,
         invitedBy: user.email,

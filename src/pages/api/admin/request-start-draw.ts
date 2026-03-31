@@ -1,3 +1,4 @@
+import { getSiteUrl } from '../../lib/site';
 import type { APIRoute } from 'astro';
 import { supabase } from '../../../lib/supabase';
 import { sendPhaseUpdateNotification } from '../../../lib/email';
@@ -47,7 +48,7 @@ export const POST: APIRoute = async ({ request, locals, redirect }) => {
     .delete()
     .in('destination_id', destinationIds);
 
-  const gameUrl = new URL('/', request.url).toString();
+  const gameUrl = getSiteUrl();
   const { data: activeParticipants } = await supabase
     .from('participants')
     .select('email, email_notifications_enabled')
