@@ -1,4 +1,4 @@
-import { getSiteUrl } from '../../lib/site';
+import { getSiteUrl } from '../../../lib/site';
 import type { APIRoute } from 'astro';
 import { supabase } from '../../../lib/supabase';
 import { sendPhaseUpdateNotification, sendWinnerAnnouncement } from '../../../lib/email';
